@@ -3,6 +3,7 @@
 import { Command } from 'commander';
 import { runFixCommand } from '../commands/fix.js';
 import { runTestsCommand } from '../commands/test.js';
+import { runExtensionCommand } from '../commands/extension.js';
 
 const program = new Command();
 
@@ -32,6 +33,21 @@ program
   .option('-v, --verbose', 'Show full command output')
   .action(async (options) => {
     await runTestsCommand(options.path, {
+      all: options.all,
+      verbose: options.verbose,
+    });
+  });
+
+program
+  .command('extension')
+  .alias('ext')
+  .description('Check VS Code extensions for security vulnerabilities')
+  .option('-e, --extension <id>', 'Check a specific extension by ID (e.g., publisher.name)')
+  .option('-a, --all', 'Check all installed extensions without prompting')
+  .option('-v, --verbose', 'Show detailed vulnerability information')
+  .action(async (options) => {
+    await runExtensionCommand({
+      extension: options.extension,
       all: options.all,
       verbose: options.verbose,
     });

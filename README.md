@@ -17,6 +17,7 @@ A CLI tool for managing security vulnerability remediation in npm/yarn/pnpm proj
 - **Interactive prompts**: Review each vulnerability and decide how to proceed
 - **Test integration**: Run test/build commands to verify changes didn't break anything
 - **Comprehensive reporting**: Severity-grouped summaries of actions taken
+- **VS Code extension auditing**: Check installed extensions for security vulnerabilities
 
 ## Installation
 
@@ -65,6 +66,26 @@ secvuln test --all
 secvuln test --verbose
 ```
 
+### Extension Command
+
+Check VS Code extensions for security vulnerabilities:
+
+```bash
+# Interactive selection from installed extensions
+secvuln extension
+# or use the alias
+secvuln ext
+
+# Check a specific extension by ID
+secvuln ext -e esbenp.prettier-vscode
+
+# Check all installed extensions
+secvuln ext --all
+
+# Verbose output showing detailed vulnerability information
+secvuln ext -e dbaeumer.vscode-eslint --verbose
+```
+
 ## How It Works
 
 ### 1. Vulnerability Detection
@@ -107,6 +128,18 @@ After applying fixes, run the test command to:
 1. Detect test/build commands in package.json scripts
 2. Select which commands to run
 3. Execute commands and report results
+
+### 6. VS Code Extension Auditing
+
+The extension command checks your VS Code extensions for vulnerabilities:
+
+1. Lists installed extensions via the `code` CLI
+2. Fetches extension metadata from the VS Code Marketplace
+3. Locates the extension's GitHub repository (from marketplace metadata or known mappings)
+4. Clones the repository and runs `npm audit`
+5. Reports any vulnerabilities found in the extension's dependencies
+
+This helps identify security risks in your development environment beyond just your project dependencies.
 
 ## Configuration
 
@@ -182,6 +215,47 @@ Vulnerability Summary:
     1. Run `secvuln test` to verify changes
     2. Review any major version upgrades
     3. Commit changes if tests pass
+```
+
+## Extension Audit Example
+
+```
+$ secvuln ext -e esbenp.prettier-vscode -v
+
+┌   secvuln - Security Vulnerability Remediation 
+│
+●  Checking 1 extension(s)...
+│
+◇  ✓ Checking esbenp.prettier-vscode
+
+────────────────────────────────────────────────────────────
+  Prettier - Code formatter
+  esbenp.prettier-vscode v11.0.2
+────────────────────────────────────────────────────────────
+  Code formatter using prettier
+  Repository: https://github.com/prettier/prettier-vscode.git
+
+  ⚠ Found 1 vulnerabilities:
+
+    HIGH: 1
+
+════════════════════════════════════════════════════════════
+  EXTENSION SECURITY SUMMARY
+════════════════════════════════════════════════════════════
+
+  Extensions checked: 1
+  With GitHub repository: 1
+  Clean (no vulnerabilities): 0
+  With vulnerabilities: 1
+
+  Extensions with vulnerabilities:
+    • Prettier - Code formatter (1 issues)
+
+════════════════════════════════════════════════════════════
+│
+▲  1 extension(s) have known vulnerabilities
+│
+└  Done! Remember to run tests to verify changes.
 ```
 
 ## Development
