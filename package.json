@@ -1,0 +1,46 @@
+{
+  "name": "secvuln",
+  "version": "1.0.0",
+  "description": "CLI tool for managing security vulnerability remediation in npm/yarn/pnpm projects",
+  "type": "module",
+  "bin": {
+    "secvuln": "./dist/bin/secvuln.js"
+  },
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/bin/secvuln.ts",
+    "start": "node dist/bin/secvuln.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "security",
+    "vulnerability",
+    "audit",
+    "npm",
+    "yarn",
+    "pnpm",
+    "cli"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@clack/prompts": "^0.8.2",
+    "@octokit/rest": "^21.0.2",
+    "commander": "^12.1.0",
+    "ora": "^8.1.1",
+    "picocolors": "^1.1.1",
+    "semver": "^7.6.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.1",
+    "@types/semver": "^7.5.8",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
