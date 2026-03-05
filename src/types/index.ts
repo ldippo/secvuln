@@ -52,6 +52,11 @@ export interface FixAction {
   vulnerability: Vulnerability;
   // For resolutions/overrides
   resolutionPath?: string;
+  // Info about a major parent bump that could fix a transitive vuln
+  majorParentBump?: {
+    parentPackage: string;
+    targetVersion: string;
+  };
   // Reason for the action (e.g., user skipped, auto-applied patch)
   reason: string;
 }
@@ -123,6 +128,37 @@ export interface TestResult {
   stdout: string;
   stderr: string;
   duration: number;
+}
+
+// Resolution audit status classification
+export type ResolutionStatus = 'needed' | 'removable' | 'stale' | 'unknown';
+
+// Parent dependency that pulls in an overridden transitive package
+export interface ParentDependencyInfo {
+  name: string;
+  currentVersion: string;
+  targetVersion: string | null;
+  versionChangeType: VersionChangeType;
+  isSafe: boolean;
+}
+
+// Single entry from resolution audit
+export interface ResolutionAuditEntry {
+  packageName: string;
+  overrideVersion: string;
+  status: ResolutionStatus;
+  reason: string;
+  suggestedVersion: string | null;
+  parentDependencies: ParentDependencyInfo[];
+}
+
+// Full result of auditing all resolutions
+export interface ResolutionAuditResult {
+  packageManager: PackageManager;
+  rootPath: string;
+  totalResolutions: number;
+  entries: ResolutionAuditEntry[];
+  counts: Record<ResolutionStatus, number>;
 }
 
 // Summary of all actions taken during a fix session

@@ -1,0 +1,41 @@
+{
+  "auditReportVersion": 2,
+  "vulnerabilities": {
+    "qs": {
+      "name": "qs",
+      "severity": "high",
+      "isDirect": false,
+      "via": [
+        {
+          "source": 1099498,
+          "name": "qs",
+          "dependency": "qs",
+          "title": "Prototype Pollution in qs",
+          "url": "https://github.com/advisories/GHSA-5678",
+          "severity": "high",
+          "cwe": ["CWE-1321"],
+          "cvss": { "score": 7.5, "vectorString": "CVSS:3.1/AV:N" },
+          "range": "<6.12.0"
+        }
+      ],
+      "effects": [],
+      "range": "<6.12.0",
+      "nodes": ["node_modules/express/node_modules/qs"],
+      "fixAvailable": { "name": "express", "version": "4.19.0", "isSemVerMajor": false }
+    },
+    "express": {
+      "name": "express",
+      "severity": "high",
+      "isDirect": true,
+      "via": ["qs"],
+      "effects": [],
+      "range": "<=4.18.2",
+      "nodes": ["node_modules/express"],
+      "fixAvailable": { "name": "express", "version": "4.19.0", "isSemVerMajor": false }
+    }
+  },
+  "metadata": {
+    "vulnerabilities": { "critical": 0, "high": 2, "moderate": 0, "low": 0, "info": 0 },
+    "dependencies": { "prod": 50, "dev": 10, "optional": 0, "peer": 0, "total": 60 }
+  }
+}

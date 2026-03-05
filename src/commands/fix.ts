@@ -145,7 +145,24 @@ export async function runFixCommand(
         } else if (action.versionChangeType === 'patch') {
           patchFixes.push({ vuln, action });
         } else {
-          reviewFixes.push({ vuln, action });
+          // Fetch changelog for minor/major transitive changes
+          let changelog: ChangelogAnalysis | undefined;
+
+          // For 'upgrade' type (parent bump), fetch changelog for the parent package
+          // For 'resolution' type, fetch for the overridden package itself
+          const changelogPackage = action.type === 'upgrade' ? action.packageName : vuln.packageName;
+          const changelogFromVersion = action.type === 'upgrade' ? action.currentVersion : vuln.currentVersion;
+          const changelogToVersion = action.targetVersion;
+
+          if (changelogToVersion && changelogFromVersion !== 'unknown') {
+            try {
+              changelog = await analyzeChangelog(changelogPackage, changelogFromVersion, changelogToVersion);
+            } catch {
+              // Changelog fetch failed, proceed without it
+            }
+          }
+
+          reviewFixes.push({ vuln, action, changelog });
         }
       }
     });

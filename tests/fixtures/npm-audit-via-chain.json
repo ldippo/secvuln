@@ -1,0 +1,51 @@
+{
+  "auditReportVersion": 2,
+  "vulnerabilities": {
+    "minimatch": {
+      "name": "minimatch",
+      "severity": "high",
+      "isDirect": false,
+      "via": [
+        {
+          "source": 1095678,
+          "name": "minimatch",
+          "dependency": "minimatch",
+          "title": "ReDoS in minimatch",
+          "url": "https://github.com/advisories/GHSA-9012",
+          "severity": "high",
+          "cwe": ["CWE-400"],
+          "cvss": { "score": 7.5, "vectorString": "CVSS:3.1/AV:N" },
+          "range": "<3.0.5"
+        }
+      ],
+      "effects": ["glob"],
+      "range": "<3.0.5",
+      "nodes": ["node_modules/minimatch"],
+      "fixAvailable": false
+    },
+    "glob": {
+      "name": "glob",
+      "severity": "high",
+      "isDirect": false,
+      "via": ["minimatch"],
+      "effects": ["rimraf"],
+      "range": "<=7.2.3",
+      "nodes": ["node_modules/glob"],
+      "fixAvailable": false
+    },
+    "rimraf": {
+      "name": "rimraf",
+      "severity": "high",
+      "isDirect": true,
+      "via": ["glob"],
+      "effects": [],
+      "range": "<=3.0.2",
+      "nodes": ["node_modules/rimraf"],
+      "fixAvailable": false
+    }
+  },
+  "metadata": {
+    "vulnerabilities": { "critical": 0, "high": 3, "moderate": 0, "low": 0, "info": 0 },
+    "dependencies": { "prod": 30, "dev": 20, "optional": 0, "peer": 0, "total": 50 }
+  }
+}

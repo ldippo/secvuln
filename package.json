@@ -13,7 +13,9 @@
     "build": "tsc",
     "dev": "tsx src/bin/secvuln.ts",
     "start": "node dist/bin/secvuln.js",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "keywords": [
     "security",
@@ -39,7 +41,8 @@
     "@types/node": "^22.10.1",
     "@types/semver": "^7.5.8",
     "tsx": "^4.19.2",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "vitest": "^4.0.18"
   },
   "engines": {
     "node": ">=18.0.0"

@@ -1,0 +1,27 @@
+{
+  "advisories": {
+    "1094985": {
+      "id": 1094985,
+      "title": "Prototype Pollution",
+      "module_name": "lodash",
+      "severity": "high",
+      "url": "https://github.com/advisories/GHSA-1234",
+      "vulnerable_versions": "<4.17.21",
+      "patched_versions": ">=4.17.21",
+      "cwe": ["CWE-1321"],
+      "cvss": { "score": 7.4, "vectorString": "CVSS:3.1/AV:N" },
+      "findings": [
+        {
+          "version": "4.17.20",
+          "paths": ["lodash", "express > lodash"]
+        }
+      ]
+    }
+  },
+  "metadata": {
+    "vulnerabilities": { "info": 0, "low": 0, "moderate": 0, "high": 1, "critical": 0 },
+    "dependencies": 80,
+    "devDependencies": 20,
+    "totalDependencies": 100
+  }
+}

@@ -13,7 +13,7 @@ import { resolveCatalogVersion } from '../workspace/catalog.js';
 /**
  * Fetch package info from npm registry
  */
-async function fetchPackageInfo(packageName: string): Promise<{
+export async function fetchPackageInfo(packageName: string): Promise<{
   versions: Record<string, { dependencies?: Record<string, string> }>;
   'dist-tags': Record<string, string>;
 } | null> {
@@ -30,24 +30,36 @@ async function fetchPackageInfo(packageName: string): Promise<{
 }
 
 /**
- * Check if parent has a patch/minor version that fixes the transitive vulnerability
+ * Check if parent has a patch/minor version that fixes the transitive vulnerability.
+ *
+ * Strategy: for each candidate parent version (newer than current), check whether
+ * its dependency range for the vulnerable child *excludes* all vulnerable versions.
+ * We use `!semver.intersects(childRange, vulnerableRange)` — if the parent's range
+ * has no overlap with the vulnerable range, upgrading the parent fixes the issue.
  */
 export async function findParentFix(
   parentPackage: string,
   currentParentVersion: string,
   vulnerableChild: string,
-  patchedChildVersions: string
+  patchedChildVersions: string,
+  vulnerableChildVersions?: string
 ): Promise<{
   found: boolean;
   targetVersion: string | null;
   changeType: 'major' | 'minor' | 'patch' | 'none';
+  majorBumpAvailable?: {
+    targetVersion: string;
+  };
 }> {
   const info = await fetchPackageInfo(parentPackage);
   if (!info) return { found: false, targetVersion: null, changeType: 'none' };
 
+  // Sort ascending so we return the minimum fix version
   const versions = Object.keys(info.versions)
     .filter((v) => semver.valid(v) && semver.gt(v, currentParentVersion))
     .sort(semver.compare);
+
+  let majorBump: { targetVersion: string } | undefined;
 
   for (const version of versions) {
     const deps = info.versions[version]?.dependencies || {};
@@ -55,31 +67,37 @@ export async function findParentFix(
 
     if (!childRange) continue;
 
-    // Check if parent's child dependency range requires patched version
-    // by checking if all satisfying versions are patched
-    const childInfo = await fetchPackageInfo(vulnerableChild);
-    if (!childInfo) continue;
+    // Check if the parent's dependency range for the child excludes vulnerable versions.
+    // Two strategies depending on available data:
+    let fixesVulnerability = false;
 
-    const childVersions = Object.keys(childInfo.versions).filter((v) =>
-      semver.satisfies(v, childRange)
-    );
+    if (vulnerableChildVersions) {
+      // Best check: parent's child range doesn't intersect the vulnerable range at all
+      fixesVulnerability = !semver.intersects(childRange, vulnerableChildVersions);
+    } else if (patchedChildVersions) {
+      // Fallback: check that the minimum version satisfying the parent's child range
+      // is itself in the patched set
+      const minChild = semver.minVersion(childRange);
+      if (minChild) {
+        fixesVulnerability = semver.satisfies(minChild.version, patchedChildVersions);
+      }
+    }
 
-    // Check if all versions matching parent's range are patched
-    const allPatched = childVersions.every((v) =>
-      semver.satisfies(v, patchedChildVersions)
-    );
-
-    if (allPatched) {
+    if (fixesVulnerability) {
       const changeType = calculateVersionChangeType(currentParentVersion, version);
-      
-      // Only return patch or minor upgrades
+
+      // Only return patch or minor upgrades automatically
       if (changeType === 'patch' || changeType === 'minor') {
         return { found: true, targetVersion: version, changeType };
+      }
+      // Capture the first major bump that fixes the vulnerability
+      if (changeType === 'major' && !majorBump) {
+        majorBump = { targetVersion: version };
       }
     }
   }
 
-  return { found: false, targetVersion: null, changeType: 'none' };
+  return { found: false, targetVersion: null, changeType: 'none', majorBumpAvailable: majorBump };
 }
 
 /**
@@ -91,18 +109,19 @@ export async function createResolutionFix(
   packageManager: PackageManager,
   catalogs?: CatalogData
 ): Promise<FixAction> {
-  const { packageName, currentVersion, patchedVersions, rootDependency } = vulnerability;
+  const { packageName, currentVersion, patchedVersions, rootDependency, vulnerableVersions } = vulnerability;
 
   // First, try to find if parent package has a fix
   if (rootDependency && patchedVersions) {
     const parentVersion = getParentVersion(rootPath, rootDependency, catalogs);
-    
+
     if (parentVersion) {
       const parentFix = await findParentFix(
         rootDependency,
         parentVersion,
         packageName,
-        patchedVersions
+        patchedVersions,
+        vulnerableVersions
       );
 
       if (parentFix.found && parentFix.targetVersion) {
@@ -116,10 +135,43 @@ export async function createResolutionFix(
           reason: `Upgrade parent package ${rootDependency} to ${parentFix.targetVersion} (${parentFix.changeType}) which includes patched ${packageName}`,
         };
       }
+
+      // Surface major parent bump info even when no patch/minor fix was found
+      const majorParentBump = parentFix.majorBumpAvailable
+        ? { parentPackage: rootDependency, targetVersion: parentFix.majorBumpAvailable.targetVersion }
+        : undefined;
+
+      // No parent fix available, create a resolution
+      const targetVersion = await getTargetVersion(packageName, currentVersion, patchedVersions);
+
+      if (!targetVersion) {
+        return {
+          type: 'skip',
+          packageName,
+          currentVersion,
+          targetVersion: null,
+          versionChangeType: 'none',
+          vulnerability,
+          majorParentBump,
+          reason: 'No patched version available',
+        };
+      }
+
+      return {
+        type: 'resolution',
+        packageName,
+        currentVersion,
+        targetVersion,
+        versionChangeType: calculateVersionChangeType(currentVersion, targetVersion),
+        vulnerability,
+        resolutionPath: packageName,
+        majorParentBump,
+        reason: `Add resolution to force ${packageName}@${targetVersion}`,
+      };
     }
   }
 
-  // No parent fix available, create a resolution
+  // No parent fix available (no rootDependency or no parentVersion), create a resolution
   const targetVersion = await getTargetVersion(packageName, currentVersion, patchedVersions);
 
   if (!targetVersion) {
@@ -166,6 +218,10 @@ function getParentVersion(rootPath: string, packageName: string, catalogs?: Cata
 
     // Resolve catalog references to actual semver ranges
     version = resolveCatalogVersion(packageName, version, catalogs);
+
+    // Use minVersion for ranges (^1.2.3 → 1.2.3) — more accurate than coerce
+    const minVer = semver.minVersion(version);
+    if (minVer) return minVer.version;
 
     return semver.coerce(version)?.version || null;
   } catch {
@@ -232,6 +288,53 @@ export function applyResolutions(
   } else if (packageManager === 'pnpm') {
     pkg.pnpm = pkg.pnpm || {};
     pkg.pnpm.overrides = { ...(pkg.pnpm.overrides || {}), ...resolutions };
+  }
+
+  writeFileSync(packageJsonPath, JSON.stringify(pkg, null, 2) + '\n');
+}
+
+/**
+ * Remove specified resolutions/overrides from package.json.
+ * Cleans up empty objects (e.g. removes `overrides: {}` or `pnpm: {}`).
+ */
+export function removeResolutions(
+  packageJsonPath: string,
+  packageNames: string[],
+  packageManager: PackageManager
+): void {
+  const content = readFileSync(packageJsonPath, 'utf-8');
+  const pkg = JSON.parse(content);
+
+  if (packageManager === 'npm') {
+    if (pkg.overrides) {
+      for (const name of packageNames) {
+        delete pkg.overrides[name];
+      }
+      if (Object.keys(pkg.overrides).length === 0) {
+        delete pkg.overrides;
+      }
+    }
+  } else if (packageManager === 'yarn') {
+    if (pkg.resolutions) {
+      for (const name of packageNames) {
+        delete pkg.resolutions[name];
+      }
+      if (Object.keys(pkg.resolutions).length === 0) {
+        delete pkg.resolutions;
+      }
+    }
+  } else if (packageManager === 'pnpm') {
+    if (pkg.pnpm?.overrides) {
+      for (const name of packageNames) {
+        delete pkg.pnpm.overrides[name];
+      }
+      if (Object.keys(pkg.pnpm.overrides).length === 0) {
+        delete pkg.pnpm.overrides;
+      }
+      if (Object.keys(pkg.pnpm).length === 0) {
+        delete pkg.pnpm;
+      }
+    }
   }
 
   writeFileSync(packageJsonPath, JSON.stringify(pkg, null, 2) + '\n');

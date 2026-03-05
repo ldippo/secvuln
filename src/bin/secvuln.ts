@@ -4,6 +4,7 @@ import { Command } from 'commander';
 import { runFixCommand } from '../commands/fix.js';
 import { runTestsCommand } from '../commands/test.js';
 import { runExtensionCommand } from '../commands/extension.js';
+import { runAuditResolutionsCommand } from '../commands/audit-resolutions.js';
 
 const program = new Command();
 
@@ -50,6 +51,22 @@ program
       extension: options.extension,
       all: options.all,
       verbose: options.verbose,
+    });
+  });
+
+program
+  .command('audit-resolutions')
+  .alias('ar')
+  .description('Check if existing overrides/resolutions are still necessary')
+  .option('-p, --path <path>', 'Path to project root', process.cwd())
+  .option('-f, --fix', 'Interactively remove unnecessary resolutions')
+  .option('-v, --verbose', 'Show detailed information for each resolution')
+  .option('--json', 'Output results as JSON')
+  .action(async (options) => {
+    await runAuditResolutionsCommand(options.path, {
+      fix: options.fix,
+      verbose: options.verbose,
+      json: options.json,
     });
   });
 

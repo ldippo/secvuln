@@ -111,6 +111,10 @@ export async function fetchGitHubReleases(
     // Sort by version descending (newest first)
     entries.sort((a, b) => compareVersions(b.version, a.version));
 
+    if (entries.length === 0) {
+      return fetchChangelogFile(parsed.owner, parsed.repo, fromVersion, toVersion);
+    }
+
     return entries;
   } catch (error) {
     // API rate limit or other error
@@ -196,6 +200,97 @@ export function extractBreakingChanges(body: string): string[] {
   }
   
   return breakingChanges;
+}
+
+/**
+ * Parse a markdown changelog file into structured entries
+ */
+export function parseChangelogMarkdown(content: string): ChangelogEntry[] {
+  const entries: ChangelogEntry[] = [];
+  const lines = content.split('\n');
+
+  // Match headings like: ## [1.2.3], ## [1.2.3] - 2024-01-15, ## 1.2.3, ## v1.2.3, # 1.2.3, # [1.2.3]
+  const headingPattern = /^#{1,2}\s+\[?v?(\d+\.\d+\.\d+[^\]\s]*)\]?(?:\s*[-–(]\s*(\d{4}-\d{2}-\d{2}))?/;
+
+  let currentVersion: string | null = null;
+  let currentDate: string | null = null;
+  let currentBodyLines: string[] = [];
+
+  const pushEntry = () => {
+    if (currentVersion) {
+      const body = currentBodyLines.join('\n').trim();
+      const breakingChanges = extractBreakingChanges(body);
+      entries.push({
+        version: currentVersion,
+        date: currentDate,
+        body,
+        url: '',
+        isBreaking: breakingChanges.length > 0,
+        breakingChanges,
+      });
+    }
+  };
+
+  for (const line of lines) {
+    const match = line.match(headingPattern);
+    if (match) {
+      pushEntry();
+      currentVersion = match[1];
+      currentDate = match[2] || null;
+      currentBodyLines = [];
+    } else if (currentVersion) {
+      currentBodyLines.push(line);
+    }
+  }
+
+  // Push the last entry
+  pushEntry();
+
+  // Sort newest first
+  entries.sort((a, b) => compareVersions(b.version, a.version));
+
+  return entries;
+}
+
+/**
+ * Fetch and parse a CHANGELOG.md file from GitHub as a fallback
+ */
+async function fetchChangelogFile(
+  owner: string,
+  repo: string,
+  fromVersion?: string,
+  toVersion?: string
+): Promise<ChangelogEntry[]> {
+  const filenames = ['CHANGELOG.md', 'CHANGES.md', 'HISTORY.md'];
+
+  for (const filename of filenames) {
+    try {
+      const { data } = await octokit.repos.getContent({
+        owner,
+        repo,
+        path: filename,
+      });
+
+      const fileData = data as { content: string };
+      const content = Buffer.from(fileData.content, 'base64').toString('utf-8');
+      let entries = parseChangelogMarkdown(content);
+
+      if (fromVersion && toVersion) {
+        entries = entries.filter((entry) =>
+          isVersionInRange(entry.version, fromVersion, toVersion)
+        );
+      }
+
+      entries.sort((a, b) => compareVersions(b.version, a.version));
+
+      return entries;
+    } catch {
+      // File not found or other error, try next filename
+      continue;
+    }
+  }
+
+  return [];
 }
 
 /**

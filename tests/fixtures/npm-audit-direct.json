@@ -1,0 +1,31 @@
+{
+  "auditReportVersion": 2,
+  "vulnerabilities": {
+    "lodash": {
+      "name": "lodash",
+      "severity": "high",
+      "isDirect": true,
+      "via": [
+        {
+          "source": 1094985,
+          "name": "lodash",
+          "dependency": "lodash",
+          "title": "Prototype Pollution",
+          "url": "https://github.com/advisories/GHSA-1234",
+          "severity": "high",
+          "cwe": ["CWE-1321"],
+          "cvss": { "score": 7.4, "vectorString": "CVSS:3.1/AV:N" },
+          "range": "<4.17.21"
+        }
+      ],
+      "effects": [],
+      "range": "<4.17.21",
+      "nodes": ["node_modules/lodash"],
+      "fixAvailable": { "name": "lodash", "version": "4.17.21", "isSemVerMajor": false }
+    }
+  },
+  "metadata": {
+    "vulnerabilities": { "critical": 0, "high": 1, "moderate": 0, "low": 0, "info": 0 },
+    "dependencies": { "prod": 10, "dev": 5, "optional": 0, "peer": 0, "total": 15 }
+  }
+}

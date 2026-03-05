@@ -110,7 +110,13 @@ export function displayVulnerability(vuln: Vulnerability): void {
   }
 
   if (!vuln.isDirect) {
-    lines.push(`  ${pc.dim('Transitive dependency via:')} ${vuln.rootDependency || 'unknown'}`);
+    const via = vuln.rootDependency
+      || (vuln.dependencyPath.length > 1 ? vuln.dependencyPath[0] : null);
+    if (via) {
+      lines.push(`  ${pc.dim('Transitive dependency via:')} ${via}`);
+    } else {
+      lines.push(`  ${pc.dim('Transitive dependency')}`);
+    }
   }
 
   console.log(lines.join('\n'));
@@ -127,15 +133,20 @@ export async function promptVulnerabilityAction(
   displayVulnerability(vuln);
 
   // Show changelog if available
-  if (changelog) {
+  const hasChangelog = changelog && changelog.entries.length > 0;
+  if (hasChangelog) {
     console.log(formatChangelogForDisplay(changelog));
   }
 
   // Show suggested action
   console.log('');
+  if (suggestedAction.majorParentBump) {
+    console.log(`  ${pc.dim('Note:')} Upgrading ${pc.bold(suggestedAction.majorParentBump.parentPackage)} to ${suggestedAction.majorParentBump.targetVersion} (major) would also fix this without a resolution`);
+  }
+
   if (suggestedAction.type === 'skip') {
     console.log(pc.yellow(`⚠ No fix available: ${suggestedAction.reason}`));
-    
+
     const result = await p.select({
       message: 'What would you like to do?',
       options: [
@@ -157,7 +168,9 @@ export async function promptVulnerabilityAction(
     : `Add resolution for ${suggestedAction.packageName}@${suggestedAction.targetVersion}`;
 
   const versionWarning = suggestedAction.versionChangeType === 'major'
-    ? pc.red(' ⚠ Major version change - review changelog above')
+    ? hasChangelog
+      ? pc.red(' ⚠ Major version change - review changelog above')
+      : pc.red(' ⚠ Major version change - review changelog before deploying')
     : '';
 
   const result = await p.select({

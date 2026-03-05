@@ -21,4 +21,5 @@ export {
   displaySeveritySummary,
   displayMajorVersionChanges,
   formatActionsTable,
+  displayResolutionAuditReport,
 } from './reporter.js';

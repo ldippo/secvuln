@@ -1,5 +1,13 @@
 import pc from 'picocolors';
-import type { FixSummary, Severity, FixAction } from '../types/index.js';
+import type {
+  FixSummary,
+  Severity,
+  FixAction,
+  ResolutionAuditResult,
+  ResolutionAuditEntry,
+  ResolutionStatus,
+  ParentDependencyInfo,
+} from '../types/index.js';
 import { formatSeverity, formatVersionChange } from './prompts.js';
 
 /**
@@ -160,20 +168,124 @@ export function displayMajorVersionChanges(actions: FixAction[]): void {
  */
 export function formatActionsTable(actions: FixAction[]): string {
   const lines: string[] = [];
-  
+
   lines.push('');
   lines.push(pc.bold('Package'.padEnd(30) + 'Action'.padEnd(15) + 'Version Change'));
   lines.push('─'.repeat(65));
-  
+
   for (const action of actions) {
     const pkg = action.packageName.slice(0, 28).padEnd(30);
     const act = action.type.toUpperCase().padEnd(15);
-    const ver = action.targetVersion 
+    const ver = action.targetVersion
       ? `${action.currentVersion} → ${action.targetVersion}`
       : 'N/A';
-    
+
     lines.push(`${pkg}${act}${ver}`);
   }
-  
+
   return lines.join('\n');
+}
+
+function formatStatus(status: ResolutionStatus): string {
+  switch (status) {
+    case 'removable':
+      return pc.yellow('REMOVABLE');
+    case 'stale':
+      return pc.red('STALE');
+    case 'needed':
+      return pc.green('NEEDED');
+    case 'unknown':
+      return pc.dim('UNKNOWN');
+  }
+}
+
+/**
+ * Display parent dependency info for a resolution audit entry
+ */
+function displayParentDependencies(entry: ResolutionAuditEntry): void {
+  if (entry.parentDependencies.length === 0) return;
+
+  console.log(`      ${pc.dim('Depends on this via:')}`);
+
+  for (const parent of entry.parentDependencies) {
+    if (parent.targetVersion) {
+      const changeLabel = formatVersionChange(parent.versionChangeType);
+      const safetyIcon = parent.isSafe ? pc.green('✓') : pc.red('⚠');
+      console.log(
+        `        ${safetyIcon} ${pc.bold(parent.name)} ${parent.currentVersion} → ${parent.targetVersion} (${changeLabel})`
+      );
+      if (parent.isSafe) {
+        console.log(
+          `          ${pc.green('Safe to bump')} — override can be removed after upgrading`
+        );
+      } else {
+        console.log(
+          `          ${pc.red('Major version change')} — review changelog before upgrading`
+        );
+      }
+    } else {
+      console.log(
+        `        ${pc.dim('•')} ${pc.bold(parent.name)}@${parent.currentVersion} ${pc.dim('— no newer version resolves this automatically')}`
+      );
+    }
+  }
+}
+
+/**
+ * Display a resolution audit report grouped by status
+ */
+export function displayResolutionAuditReport(
+  result: ResolutionAuditResult,
+  verbose?: boolean
+): void {
+  console.log('');
+  console.log(pc.bold('═'.repeat(60)));
+  console.log(pc.bold(pc.cyan('  RESOLUTION AUDIT')));
+  console.log(pc.bold('═'.repeat(60)));
+  console.log('');
+
+  // Summary counts
+  console.log(pc.bold('  Summary:'));
+  console.log(`    Total resolutions: ${result.totalResolutions}`);
+  if (result.counts.removable > 0) {
+    console.log(`    ${pc.yellow('Removable:')} ${result.counts.removable}`);
+  }
+  if (result.counts.stale > 0) {
+    console.log(`    ${pc.red('Stale:')} ${result.counts.stale}`);
+  }
+  if (result.counts.needed > 0) {
+    console.log(`    ${pc.green('Needed:')} ${result.counts.needed}`);
+  }
+  if (result.counts.unknown > 0) {
+    console.log(`    ${pc.dim('Unknown:')} ${result.counts.unknown}`);
+  }
+  console.log('');
+
+  // Group entries by status
+  const groups: [ResolutionStatus, string][] = [
+    ['removable', 'Removable Resolutions'],
+    ['stale', 'Stale Resolutions'],
+    ['needed', 'Needed Resolutions'],
+    ['unknown', 'Unknown Resolutions'],
+  ];
+
+  for (const [status, title] of groups) {
+    const items = result.entries.filter((e) => e.status === status);
+    if (items.length === 0) continue;
+
+    console.log(`  ${pc.bold(title)} (${items.length}):`);
+    console.log('  ' + '─'.repeat(50));
+
+    for (const entry of items) {
+      console.log(`    ${formatStatus(entry.status)} ${pc.bold(entry.packageName)}@${entry.overrideVersion}`);
+      console.log(`      ${pc.dim(entry.reason)}`);
+      if (verbose && entry.suggestedVersion) {
+        console.log(`      ${pc.cyan('Suggested:')} ${entry.suggestedVersion}`);
+      }
+      displayParentDependencies(entry);
+    }
+    console.log('');
+  }
+
+  console.log(pc.bold('═'.repeat(60)));
 }

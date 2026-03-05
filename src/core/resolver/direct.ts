@@ -97,94 +97,6 @@ export async function createDirectFixAction(
   };
 }
 
-/**
- * Check if a parent package has a newer version that fixes a transitive vulnerability
- */
-export async function checkParentPackageFix(
-  vulnerablePackage: string,
-  vulnerableVersion: string,
-  parentPackage: string,
-  currentParentVersion: string
-): Promise<{ hasfix: boolean; targetVersion: string | null; changeType: VersionChangeType }> {
-  try {
-    const response = await fetch(`https://registry.npmjs.org/${parentPackage}`);
-    if (!response.ok) return { hasfix: false, targetVersion: null, changeType: 'none' };
-    
-    const data = await response.json() as {
-      versions: Record<string, { dependencies?: Record<string, string> }>;
-    };
-    
-    const versions = Object.keys(data.versions || {});
-    
-    // Find versions newer than current that don't depend on vulnerable version
-    for (const version of versions.sort(semver.compare).reverse()) {
-      if (!semver.gt(version, currentParentVersion)) continue;
-      
-      const versionData = data.versions[version];
-      const deps = versionData?.dependencies || {};
-      const depRange = deps[vulnerablePackage];
-      
-      if (!depRange) continue; // Parent doesn't depend on this package in this version
-      
-      // Check if this version requires a non-vulnerable version
-      if (!semver.intersects(depRange, `<=${vulnerableVersion}`)) {
-        const changeType = calculateVersionChangeType(currentParentVersion, version);
-        
-        // Only suggest patch or minor upgrades automatically
-        if (changeType === 'patch' || changeType === 'minor') {
-          return { hasfix: true, targetVersion: version, changeType };
-        }
-      }
-    }
-    
-    return { hasfix: false, targetVersion: null, changeType: 'none' };
-  } catch {
-    return { hasfix: false, targetVersion: null, changeType: 'none' };
-  }
-}
-
-/**
- * Create a fix action for a transitive dependency
- */
-export async function createTransitiveFixAction(
-  vulnerability: Vulnerability,
-  rootPackagePath: string
-): Promise<FixAction> {
-  const { rootDependency, packageName, currentVersion, patchedVersions } = vulnerability;
-
-  // First, check if parent package has a fix
-  if (rootDependency) {
-    // We'd need to look up current parent version from package.json
-    // For now, create a resolution
-  }
-
-  // Get target version for resolution
-  const targetVersion = await getTargetVersion(packageName, currentVersion, patchedVersions);
-
-  if (!targetVersion) {
-    return {
-      type: 'skip',
-      packageName,
-      currentVersion,
-      targetVersion: null,
-      versionChangeType: 'none',
-      vulnerability,
-      reason: 'No patched version available for transitive dependency',
-    };
-  }
-
-  return {
-    type: 'resolution',
-    packageName,
-    currentVersion,
-    targetVersion,
-    versionChangeType: calculateVersionChangeType(currentVersion, targetVersion),
-    vulnerability,
-    resolutionPath: rootDependency ? `${rootDependency}/${packageName}` : packageName,
-    reason: `Add resolution to force ${packageName}@${targetVersion}`,
-  };
-}
-
 export interface ApplyUpgradeOptions {
   catalogs?: CatalogData;
   rootPath?: string;
@@ -272,7 +184,13 @@ export function getCurrentVersion(
     // Resolve catalog references to actual semver ranges
     version = resolveCatalogVersion(packageName, version, catalogs);
 
-    // Clean version string (remove ^ ~ etc)
+    // If it's a valid range (^1.2.3, ~1.2.3, >=1.2.3), extract the minimum
+    // satisfying version. This is more accurate than coerce() which can
+    // misparse complex ranges.
+    const minVer = semver.minVersion(version);
+    if (minVer) return minVer.version;
+
+    // Fallback: try coerce for non-standard version strings
     return semver.coerce(version)?.version || version.replace(/^[\^~]/, '');
   } catch {
     return null;

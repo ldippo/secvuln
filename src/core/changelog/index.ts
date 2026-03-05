@@ -4,6 +4,7 @@ export {
   parseGitHubUrl,
   extractBreakingChanges,
   hasBreakingChangeIndicators,
+  parseChangelogMarkdown,
 } from './github.js';
 
 export {
