@@ -92,12 +92,19 @@ export interface WorkspacePackage {
   devDependencies: Record<string, string>;
 }
 
+// Catalog data from pnpm-workspace.yaml
+export interface CatalogData {
+  default: Record<string, string>;
+  named: Record<string, Record<string, string>>;
+}
+
 // Workspace detection result
 export interface WorkspaceInfo {
   isMonorepo: boolean;
   rootPath: string;
   packages: WorkspacePackage[];
   packageManager: PackageManager;
+  catalogs?: CatalogData;
 }
 
 // Test command found in package.json scripts

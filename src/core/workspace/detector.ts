@@ -2,6 +2,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, dirname, basename } from 'node:path';
 import type { PackageManager, WorkspaceInfo, WorkspacePackage } from '../../types/index.js';
 import { detectPackageManager } from '../package-manager.js';
+import { parseCatalogs } from './catalog.js';
 
 /**
  * Parse a package.json file and extract relevant information
@@ -149,11 +150,15 @@ export async function detectWorkspace(rootPath: string): Promise<WorkspaceInfo> 
     }
   }
 
+  // Parse pnpm catalogs if applicable
+  const catalogs = pm === 'pnpm' ? parseCatalogs(rootPath) : null;
+
   return {
     isMonorepo: patterns.length > 0,
     rootPath,
     packages,
     packageManager: pm,
+    ...(catalogs ? { catalogs } : {}),
   };
 }
 

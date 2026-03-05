@@ -5,8 +5,10 @@ import type {
   Vulnerability,
   FixAction,
   PackageManager,
+  CatalogData,
 } from '../../types/index.js';
 import { getTargetVersion, calculateVersionChangeType } from './direct.js';
+import { resolveCatalogVersion } from '../workspace/catalog.js';
 
 /**
  * Fetch package info from npm registry
@@ -86,13 +88,14 @@ export async function findParentFix(
 export async function createResolutionFix(
   vulnerability: Vulnerability,
   rootPath: string,
-  packageManager: PackageManager
+  packageManager: PackageManager,
+  catalogs?: CatalogData
 ): Promise<FixAction> {
   const { packageName, currentVersion, patchedVersions, rootDependency } = vulnerability;
 
   // First, try to find if parent package has a fix
   if (rootDependency && patchedVersions) {
-    const parentVersion = getParentVersion(rootPath, rootDependency);
+    const parentVersion = getParentVersion(rootPath, rootDependency, catalogs);
     
     if (parentVersion) {
       const parentFix = await findParentFix(
@@ -144,22 +147,26 @@ export async function createResolutionFix(
 }
 
 /**
- * Get the current version of a parent package from package.json
+ * Get the current version of a parent package from package.json,
+ * resolving catalog references if catalogs are provided
  */
-function getParentVersion(rootPath: string, packageName: string): string | null {
+function getParentVersion(rootPath: string, packageName: string, catalogs?: CatalogData): string | null {
   const packageJsonPath = join(rootPath, 'package.json');
-  
+
   if (!existsSync(packageJsonPath)) return null;
 
   try {
     const content = readFileSync(packageJsonPath, 'utf-8');
     const pkg = JSON.parse(content);
-    
-    const version =
+
+    let version =
       pkg.dependencies?.[packageName] || pkg.devDependencies?.[packageName];
-    
+
     if (!version) return null;
-    
+
+    // Resolve catalog references to actual semver ranges
+    version = resolveCatalogVersion(packageName, version, catalogs);
+
     return semver.coerce(version)?.version || null;
   } catch {
     return null;

@@ -6,8 +6,10 @@ import type {
   FixAction,
   VersionChangeType,
   PackageManager,
+  CatalogData,
 } from '../../types/index.js';
 import { getVersionChangeType, analyzeChangelog } from '../changelog/index.js';
+import { parseCatalogReference, resolveCatalogVersion, updateCatalogVersion } from '../workspace/catalog.js';
 
 /**
  * Determine the target version for a direct dependency upgrade
@@ -183,18 +185,36 @@ export async function createTransitiveFixAction(
   };
 }
 
+export interface ApplyUpgradeOptions {
+  catalogs?: CatalogData;
+  rootPath?: string;
+}
+
 /**
- * Apply an upgrade to package.json
+ * Apply an upgrade to package.json, or to pnpm-workspace.yaml if the dep uses a catalog reference
  */
 export function applyUpgrade(
   packageJsonPath: string,
   packageName: string,
-  targetVersion: string
+  targetVersion: string,
+  options?: ApplyUpgradeOptions
 ): void {
   const content = readFileSync(packageJsonPath, 'utf-8');
   const pkg = JSON.parse(content);
 
-  // Check both dependencies and devDependencies
+  const versionSpec = pkg.dependencies?.[packageName] ?? pkg.devDependencies?.[packageName];
+
+  // Check if this is a catalog reference
+  if (versionSpec && options?.catalogs && options.rootPath) {
+    const catalogName = parseCatalogReference(versionSpec);
+    if (catalogName !== null) {
+      // Update the catalog entry in pnpm-workspace.yaml instead of package.json
+      updateCatalogVersion(options.rootPath, catalogName, packageName, `^${targetVersion}`);
+      return;
+    }
+  }
+
+  // Standard path: update package.json directly
   if (pkg.dependencies?.[packageName]) {
     pkg.dependencies[packageName] = `^${targetVersion}`;
   } else if (pkg.devDependencies?.[packageName]) {
@@ -234,19 +254,24 @@ export function applyResolution(
 }
 
 /**
- * Get current version of a direct dependency from package.json
+ * Get current version of a direct dependency from package.json,
+ * resolving catalog references if catalogs are provided
  */
 export function getCurrentVersion(
   packageJsonPath: string,
-  packageName: string
+  packageName: string,
+  catalogs?: CatalogData
 ): string | null {
   try {
     const content = readFileSync(packageJsonPath, 'utf-8');
     const pkg = JSON.parse(content);
-    
-    const version = pkg.dependencies?.[packageName] || pkg.devDependencies?.[packageName];
+
+    let version = pkg.dependencies?.[packageName] || pkg.devDependencies?.[packageName];
     if (!version) return null;
-    
+
+    // Resolve catalog references to actual semver ranges
+    version = resolveCatalogVersion(packageName, version, catalogs);
+
     // Clean version string (remove ^ ~ etc)
     return semver.coerce(version)?.version || version.replace(/^[\^~]/, '');
   } catch {

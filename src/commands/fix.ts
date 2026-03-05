@@ -5,6 +5,7 @@ import type {
   FixSummary,
   Severity,
   ChangelogAnalysis,
+  CatalogData,
 } from '../types/index.js';
 import { detectWorkspace } from '../core/workspace/detector.js';
 import { runAudit, deduplicateVulnerabilities, groupBySeverity } from '../core/audit/index.js';
@@ -135,7 +136,8 @@ export async function runFixCommand(
         const action = await createResolutionFix(
           vuln,
           workspace.rootPath,
-          workspace.packageManager
+          workspace.packageManager,
+          workspace.catalogs
         );
 
         if (action.type === 'skip') {
@@ -158,7 +160,7 @@ export async function runFixCommand(
             info(`[DRY RUN] Would apply: ${action.reason}`);
           } else {
             try {
-              applyFixAction(action, workspace.rootPath, workspace.packageManager);
+              applyFixAction(action, workspace.rootPath, workspace.packageManager, workspace.catalogs);
               summary.actionsApplied.upgrades.push(action);
             } catch (err) {
               const message = err instanceof Error ? err.message : String(err);
@@ -200,8 +202,8 @@ export async function runFixCommand(
             summary.actionsApplied.upgrades.push(action);
           } else {
             try {
-              applyFixAction(action, workspace.rootPath, workspace.packageManager);
-              
+              applyFixAction(action, workspace.rootPath, workspace.packageManager, workspace.catalogs);
+
               if (action.type === 'upgrade') {
                 summary.actionsApplied.upgrades.push(action);
               } else if (action.type === 'resolution') {
@@ -271,7 +273,8 @@ export async function runFixCommand(
 function applyFixAction(
   action: FixAction,
   rootPath: string,
-  packageManager: 'npm' | 'yarn' | 'pnpm'
+  packageManager: 'npm' | 'yarn' | 'pnpm',
+  catalogs?: CatalogData
 ): void {
   if (!action.targetVersion) {
     throw new Error('No target version specified');
@@ -280,7 +283,10 @@ function applyFixAction(
   const packageJsonPath = join(rootPath, 'package.json');
 
   if (action.type === 'upgrade') {
-    applyUpgrade(packageJsonPath, action.packageName, action.targetVersion);
+    applyUpgrade(packageJsonPath, action.packageName, action.targetVersion, {
+      catalogs,
+      rootPath,
+    });
   } else if (action.type === 'resolution') {
     applyResolution(packageJsonPath, action.packageName, action.targetVersion, packageManager);
   }
