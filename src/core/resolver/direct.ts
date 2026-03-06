@@ -9,7 +9,7 @@ import type {
   CatalogData,
 } from '../../types/index.js';
 import { getVersionChangeType, analyzeChangelog } from '../changelog/index.js';
-import { parseCatalogReference, resolveCatalogVersion, updateCatalogVersion } from '../workspace/catalog.js';
+import { parseCatalogReference, resolveCatalogVersion, updateCatalogVersion, findPackageInCatalogs } from '../workspace/catalog.js';
 
 /**
  * Determine the target version for a direct dependency upgrade
@@ -116,11 +116,20 @@ export function applyUpgrade(
 
   const versionSpec = pkg.dependencies?.[packageName] ?? pkg.devDependencies?.[packageName];
 
-  // Check if this is a catalog reference
+  // Check if this is a catalog reference (works when the correct package.json is passed)
   if (versionSpec && options?.catalogs && options.rootPath) {
     const catalogName = parseCatalogReference(versionSpec);
     if (catalogName !== null) {
-      // Update the catalog entry in pnpm-workspace.yaml instead of package.json
+      updateCatalogVersion(options.rootPath, catalogName, packageName, `^${targetVersion}`);
+      return;
+    }
+  }
+
+  // Fallback: check catalog data directly (handles monorepos where the catalog ref
+  // is in a sub-package, not the root package.json we're reading)
+  if (options?.catalogs && options.rootPath) {
+    const catalogName = findPackageInCatalogs(packageName, options.catalogs);
+    if (catalogName !== null) {
       updateCatalogVersion(options.rootPath, catalogName, packageName, `^${targetVersion}`);
       return;
     }
@@ -137,14 +146,25 @@ export function applyUpgrade(
 }
 
 /**
- * Apply a resolution/override to package.json
+ * Apply a resolution/override to package.json, or update pnpm-workspace.yaml
+ * if the package is managed by a catalog
  */
 export function applyResolution(
   packageJsonPath: string,
   packageName: string,
   targetVersion: string,
-  packageManager: PackageManager
+  packageManager: PackageManager,
+  options?: ApplyUpgradeOptions
 ): void {
+  // If the package is managed by a catalog, update the catalog instead of adding an override
+  if (packageManager === 'pnpm' && options?.catalogs && options.rootPath) {
+    const catalogName = findPackageInCatalogs(packageName, options.catalogs);
+    if (catalogName !== null) {
+      updateCatalogVersion(options.rootPath, catalogName, packageName, `^${targetVersion}`);
+      return;
+    }
+  }
+
   const content = readFileSync(packageJsonPath, 'utf-8');
   const pkg = JSON.parse(content);
 

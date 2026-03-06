@@ -3,6 +3,7 @@ export { runFixCommand } from './commands/fix.js';
 export { runTestsCommand } from './commands/test.js';
 export { runExtensionCommand } from './commands/extension.js';
 export { runAuditResolutionsCommand } from './commands/audit-resolutions.js';
+export { runFixAllCommand } from './commands/fix-all.js';
 
 // Core modules
 export * from './types/index.js';

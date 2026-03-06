@@ -44,13 +44,19 @@ export async function runAudit(
  * Deduplicate vulnerabilities by ID and package name
  */
 export function deduplicateVulnerabilities(result: AuditResult): AuditResult {
-  const seen = new Map<string, boolean>();
-  const deduped = result.vulnerabilities.filter((v) => {
+  // Use a map keyed by id+packageName, preferring direct deps over transitive.
+  // This prevents direct dependencies from being treated as transitive (and
+  // getting overrides instead of dependency bumps) when the transitive entry
+  // happens to appear first in the array.
+  const bestByKey = new Map<string, typeof result.vulnerabilities[number]>();
+  for (const v of result.vulnerabilities) {
     const key = `${v.id}-${v.packageName}`;
-    if (seen.has(key)) return false;
-    seen.set(key, true);
-    return true;
-  });
+    const existing = bestByKey.get(key);
+    if (!existing || (v.isDirect && !existing.isDirect)) {
+      bestByKey.set(key, v);
+    }
+  }
+  const deduped = [...bestByKey.values()];
 
   // Recalculate counts
   const counts = { critical: 0, high: 0, moderate: 0, low: 0, info: 0 };

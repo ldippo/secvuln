@@ -26,7 +26,35 @@ describe('auditResolutions', () => {
     expect(result.counts).toEqual({ needed: 0, removable: 0, stale: 0, unknown: 0 });
   });
 
-  it('marks override as removable when latest > override version', async () => {
+  it('marks override as removable when latest > override and package is a direct dep', async () => {
+    const dir = createTempDir();
+    writeTempFile(
+      dir,
+      'package.json',
+      JSON.stringify({
+        name: 'test',
+        dependencies: { qs: '^6.12.0' },
+        overrides: { qs: '6.12.0' },
+      }, null, 2)
+    );
+    mockFetch({
+      'https://registry.npmjs.org/qs': {
+        versions: {
+          '6.12.0': {},
+          '6.13.0': {},
+        },
+        'dist-tags': { latest: '6.13.0' },
+      },
+    });
+
+    const result = await auditResolutions(dir, 'npm');
+    expect(result.totalResolutions).toBe(1);
+    expect(result.entries[0].status).toBe('removable');
+    expect(result.entries[0].reason).toContain('6.13.0');
+    expect(result.counts.removable).toBe(1);
+  });
+
+  it('marks transitive-only override as unknown when no parents found', async () => {
     const dir = createTempDir();
     writeTempFile(
       dir,
@@ -44,10 +72,8 @@ describe('auditResolutions', () => {
     });
 
     const result = await auditResolutions(dir, 'npm');
-    expect(result.totalResolutions).toBe(1);
-    expect(result.entries[0].status).toBe('removable');
-    expect(result.entries[0].reason).toContain('6.13.0');
-    expect(result.counts.removable).toBe(1);
+    expect(result.entries[0].status).toBe('unknown');
+    expect(result.entries[0].reason).toContain('transitive');
   });
 
   it('marks override as needed when it matches the latest version', async () => {
@@ -151,9 +177,12 @@ describe('auditResolutions', () => {
 
     const result = await auditResolutions(dir, 'npm');
     expect(result.totalResolutions).toBe(3);
-    expect(result.counts.removable).toBe(1);
+    // qs: latest > override but not a direct dep → unknown
+    // lodash: latest === override → needed
+    // bad-pkg: fetch fails → unknown
     expect(result.counts.needed).toBe(1);
-    expect(result.counts.unknown).toBe(1);
+    expect(result.counts.unknown).toBe(2);
+    expect(result.counts.removable).toBe(0);
   });
 
   it('reads pnpm overrides correctly', async () => {
@@ -163,6 +192,7 @@ describe('auditResolutions', () => {
       'package.json',
       JSON.stringify({
         name: 'test',
+        dependencies: { qs: '^6.12.0' },
         pnpm: { overrides: { qs: '6.12.0' } },
       }, null, 2)
     );
@@ -200,7 +230,7 @@ describe('auditResolutions', () => {
     expect(result.entries[0].status).toBe('needed');
   });
 
-  it('finds parent dependencies for removable overrides', async () => {
+  it('classifies as needed when parent bumps are required before removal', async () => {
     const dir = createTempDir();
     writeTempFile(
       dir,
@@ -230,7 +260,8 @@ describe('auditResolutions', () => {
     });
 
     const result = await auditResolutions(dir, 'npm');
-    expect(result.entries[0].status).toBe('removable');
+    expect(result.entries[0].status).toBe('needed');
+    expect(result.entries[0].reason).toContain('bumping');
     expect(result.entries[0].parentDependencies).toHaveLength(1);
 
     const parent = result.entries[0].parentDependencies[0];
@@ -368,6 +399,8 @@ describe('auditResolutions', () => {
     });
 
     const result = await auditResolutions(dir, 'npm');
+    // Both parents have safe bumps, but override is still needed until bumps are applied
+    expect(result.entries[0].status).toBe('needed');
     expect(result.entries[0].parentDependencies).toHaveLength(2);
 
     const names = result.entries[0].parentDependencies.map((p) => p.name);
@@ -464,7 +497,7 @@ describe('auditResolutions', () => {
     expect(stuck?.isSafe).toBe(false);
   });
 
-  it('classifies as removable with no parents (orphaned override)', async () => {
+  it('classifies transitive orphan as unknown (cannot verify all paths)', async () => {
     const dir = createTempDir();
     writeTempFile(
       dir,
@@ -489,7 +522,98 @@ describe('auditResolutions', () => {
     });
 
     const result = await auditResolutions(dir, 'npm');
+    expect(result.entries[0].status).toBe('unknown');
+    expect(result.entries[0].reason).toContain('transitive');
+    expect(result.entries[0].parentDependencies).toEqual([]);
+  });
+
+  it('classifies direct dep orphan as removable', async () => {
+    const dir = createTempDir();
+    writeTempFile(
+      dir,
+      'package.json',
+      JSON.stringify({
+        name: 'test',
+        dependencies: { 'orphan-child': '^1.0.0' },
+        overrides: { 'orphan-child': '1.0.0' },
+      }, null, 2)
+    );
+    mockFetch({
+      'https://registry.npmjs.org/orphan-child': {
+        versions: { '1.0.0': {}, '1.1.0': {} },
+        'dist-tags': { latest: '1.1.0' },
+      },
+    });
+
+    const result = await auditResolutions(dir, 'npm');
     expect(result.entries[0].status).toBe('removable');
+    expect(result.entries[0].parentDependencies).toEqual([]);
+  });
+
+  it('finds transitive parents at depth 2', async () => {
+    const dir = createTempDir();
+    writeTempFile(
+      dir,
+      'package.json',
+      JSON.stringify({
+        name: 'test',
+        dependencies: { 'parent-lib': '^1.0.0' },
+        overrides: { 'deep-child': '2.0.0' },
+      }, null, 2)
+    );
+    mockFetch({
+      'https://registry.npmjs.org/deep-child': {
+        versions: { '1.0.0': {}, '2.0.0': {}, '2.1.0': {} },
+        'dist-tags': { latest: '2.1.0' },
+      },
+      'https://registry.npmjs.org/parent-lib': {
+        versions: {
+          '1.0.0': { dependencies: { 'mid-pkg': '^1.0.0' } },
+        },
+        'dist-tags': { latest: '1.0.0' },
+      },
+      'https://registry.npmjs.org/mid-pkg': {
+        versions: {
+          '1.0.0': { dependencies: { 'deep-child': '^1.0.0' } },
+          '1.1.0': { dependencies: { 'deep-child': '^2.0.0' } },
+        },
+        'dist-tags': { latest: '1.1.0' },
+      },
+    });
+
+    const result = await auditResolutions(dir, 'npm');
+    // mid-pkg should be found as a transitive parent at depth 2
+    expect(result.entries[0].parentDependencies).toHaveLength(1);
+    expect(result.entries[0].parentDependencies[0].name).toBe('mid-pkg');
+    expect(result.entries[0].parentDependencies[0].targetVersion).toBe('1.1.0');
+  });
+
+  it('skips parents whose current range already resolves >= override', async () => {
+    const dir = createTempDir();
+    writeTempFile(
+      dir,
+      'package.json',
+      JSON.stringify({
+        name: 'test',
+        dependencies: { 'good-parent': '^1.0.0' },
+        overrides: { 'child-pkg': '2.0.0' },
+      }, null, 2)
+    );
+    mockFetch({
+      'https://registry.npmjs.org/child-pkg': {
+        versions: { '2.0.0': {}, '2.5.0': {} },
+        'dist-tags': { latest: '2.5.0' },
+      },
+      'https://registry.npmjs.org/good-parent': {
+        versions: {
+          '1.0.0': { dependencies: { 'child-pkg': '>=2.0.0' } },
+        },
+        'dist-tags': { latest: '1.0.0' },
+      },
+    });
+
+    const result = await auditResolutions(dir, 'npm');
+    // Parent's current range already >= override, so no parents need the override
     expect(result.entries[0].parentDependencies).toEqual([]);
   });
 

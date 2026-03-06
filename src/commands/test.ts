@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { readFileSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
 import * as p from '@clack/prompts';
 import pc from 'picocolors';
 import type { TestCommand, TestResult } from '../types/index.js';
@@ -19,6 +19,7 @@ import {
 interface TestOptions {
   all?: boolean;
   verbose?: boolean;
+  silent?: boolean;
 }
 
 // Common test/build script patterns
@@ -85,7 +86,7 @@ function findTestCommands(
         commands.push({
           name,
           script,
-          packagePath: packageJsonPath.replace('/package.json', ''),
+          packagePath: dirname(packageJsonPath),
           packageName,
         });
       }
@@ -208,7 +209,7 @@ export async function runTestsCommand(
   targetPath: string,
   options: TestOptions = {}
 ): Promise<void> {
-  showWelcome();
+  if (!options.silent) showWelcome();
 
   try {
     // Detect workspace
@@ -232,7 +233,7 @@ export async function runTestsCommand(
 
     if (allCommands.length === 0) {
       warn('No test/build commands found in package.json scripts');
-      showGoodbye();
+      if (!options.silent) showGoodbye();
       return;
     }
 
@@ -248,7 +249,7 @@ export async function runTestsCommand(
       
       if (commandsToRun.length === 0) {
         info('No commands selected');
-        showGoodbye();
+        if (!options.silent) showGoodbye();
         return;
       }
     }
@@ -292,5 +293,5 @@ export async function runTestsCommand(
     error(`Test command failed: ${message}`);
   }
 
-  showGoodbye();
+  if (!options.silent) showGoodbye();
 }

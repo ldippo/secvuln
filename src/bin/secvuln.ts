@@ -5,6 +5,7 @@ import { runFixCommand } from '../commands/fix.js';
 import { runTestsCommand } from '../commands/test.js';
 import { runExtensionCommand } from '../commands/extension.js';
 import { runAuditResolutionsCommand } from '../commands/audit-resolutions.js';
+import { runFixAllCommand } from '../commands/fix-all.js';
 
 const program = new Command();
 
@@ -67,6 +68,27 @@ program
       fix: options.fix,
       verbose: options.verbose,
       json: options.json,
+    });
+  });
+
+program
+  .command('fix-all')
+  .alias('fa')
+  .description('Iteratively fix vulnerabilities: fix, install, re-audit until clean, then optionally test and audit resolutions')
+  .option('-p, --path <path>', 'Path to project root', process.cwd())
+  .option('-d, --dry-run', 'Show what would be changed without making changes')
+  .option('-v, --verbose', 'Show verbose output')
+  .option('-m, --max-rounds <number>', 'Maximum fix rounds (default: 5)', '5')
+  .action(async (options) => {
+    const maxRounds = parseInt(options.maxRounds, 10);
+    if (isNaN(maxRounds) || maxRounds < 1) {
+      console.error('--max-rounds must be a positive integer');
+      process.exit(1);
+    }
+    await runFixAllCommand(options.path, {
+      dryRun: options.dryRun,
+      verbose: options.verbose,
+      maxRounds,
     });
   });
 

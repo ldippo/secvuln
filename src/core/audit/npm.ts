@@ -96,7 +96,8 @@ function buildDependencyPath(pkgName: string, nodes: string[]): string[] {
   // Use the first node path to derive the chain
   const nodePath = nodes[0];
   // Split on /node_modules/ to get the chain of packages
-  const segments = nodePath.split(/\/node_modules\//).filter(Boolean);
+  // Filter out empty strings and "." (root project marker)
+  const segments = nodePath.split(/\/node_modules\//).filter((s) => s && s !== '.');
   return segments.length > 0 ? segments : [pkgName];
 }
 
@@ -115,16 +116,21 @@ function findRootDependency(
   // Strategy 1: derive from node_modules nesting
   if (nodes && nodes.length > 0) {
     const nodePath = nodes[0];
-    const segments = nodePath.split(/\/node_modules\//).filter(Boolean);
+    // Filter out empty strings and "." (root project marker)
+    const segments = nodePath.split(/\/node_modules\//).filter((s) => s && s !== '.');
     // segments[0] is the outermost (direct) dep, segments[-1] is the vulnerable pkg
     if (segments.length >= 2) {
-      // The first segment is the direct dependency name
-      return segments[0].replace(/\/.*$/, '');
+      // Extract package name — handle scoped packages like @scope/package
+      const first = segments[0];
+      const parentName = first.startsWith('@') ? first : first.replace(/\/.*$/, '');
+      return parentName;
     }
   }
 
-  // Strategy 2: walk the effects chain to find a direct dependency.
-  // effects[i] is a package that depends on pkgName — walk up until we find one that isDirect.
+  // Strategy 2: walk the effects chain upward to find a direct dependency.
+  // Each vulnerability entry has an `effects` array listing packages that
+  // depend on it. Walk from the vulnerable package up through its effects
+  // until we find one that is a direct dependency.
   const visited = new Set<string>();
   const queue = [pkgName];
 
@@ -133,7 +139,30 @@ function findRootDependency(
     if (visited.has(current)) continue;
     visited.add(current);
 
-    // Find packages that list `current` in their via (i.e., depend on it)
+    const currentEntry = vulnerabilities[current];
+    if (!currentEntry) continue;
+
+    for (const affected of currentEntry.effects) {
+      const affectedEntry = vulnerabilities[affected];
+      if (!affectedEntry) continue;
+
+      if (affectedEntry.isDirect) {
+        return affected;
+      }
+      queue.push(affected);
+    }
+  }
+
+  // Strategy 3: reverse walk via references as a last resort.
+  // Find packages that list the vulnerable package in their via.
+  visited.clear();
+  const queue2 = [pkgName];
+
+  while (queue2.length > 0) {
+    const current = queue2.shift()!;
+    if (visited.has(current)) continue;
+    visited.add(current);
+
     for (const [name, entry] of Object.entries(vulnerabilities)) {
       if (name === current) continue;
       const dependsOnCurrent = entry.via.some(
@@ -144,7 +173,7 @@ function findRootDependency(
       if (entry.isDirect) {
         return name;
       }
-      queue.push(name);
+      queue2.push(name);
     }
   }
 

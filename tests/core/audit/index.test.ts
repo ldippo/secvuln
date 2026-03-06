@@ -83,6 +83,46 @@ describe('deduplicateVulnerabilities', () => {
     });
   });
 
+  it('prefers direct dependency over transitive when both exist', () => {
+    const transitive: Vulnerability = {
+      ...makeVuln('CVE-1', 'lodash', 'high'),
+      isDirect: false,
+      rootDependency: 'express',
+      dependencyPath: ['express', 'lodash'],
+    };
+    const direct: Vulnerability = {
+      ...makeVuln('CVE-1', 'lodash', 'high'),
+      isDirect: true,
+      rootDependency: null,
+      dependencyPath: ['lodash'],
+    };
+    // Transitive appears first — dedup should still keep the direct entry
+    const result = deduplicateVulnerabilities(makeResult([transitive, direct]));
+
+    expect(result.vulnerabilities).toHaveLength(1);
+    expect(result.vulnerabilities[0].isDirect).toBe(true);
+    expect(result.vulnerabilities[0].rootDependency).toBeNull();
+  });
+
+  it('prefers direct even when it appears first', () => {
+    const direct: Vulnerability = {
+      ...makeVuln('CVE-1', 'lodash', 'high'),
+      isDirect: true,
+      rootDependency: null,
+      dependencyPath: ['lodash'],
+    };
+    const transitive: Vulnerability = {
+      ...makeVuln('CVE-1', 'lodash', 'high'),
+      isDirect: false,
+      rootDependency: 'express',
+      dependencyPath: ['express', 'lodash'],
+    };
+    const result = deduplicateVulnerabilities(makeResult([direct, transitive]));
+
+    expect(result.vulnerabilities).toHaveLength(1);
+    expect(result.vulnerabilities[0].isDirect).toBe(true);
+  });
+
   it('handles empty input', () => {
     const result = deduplicateVulnerabilities(makeResult([]));
 

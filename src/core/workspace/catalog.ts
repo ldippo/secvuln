@@ -74,6 +74,21 @@ export function resolveCatalogVersion(
 }
 
 /**
+ * Find which catalog (if any) a package belongs to.
+ * Returns the catalog name (empty string for default) or null if not found.
+ */
+export function findPackageInCatalogs(
+  packageName: string,
+  catalogs: CatalogData
+): string | null {
+  if (catalogs.default[packageName]) return '';
+  for (const [name, entries] of Object.entries(catalogs.named)) {
+    if (entries[packageName]) return name;
+  }
+  return null;
+}
+
+/**
  * Update a version in pnpm-workspace.yaml, preserving formatting
  */
 export function updateCatalogVersion(

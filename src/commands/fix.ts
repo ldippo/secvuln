@@ -3,6 +3,7 @@ import type {
   Vulnerability,
   FixAction,
   FixSummary,
+  FixCommandResult,
   Severity,
   ChangelogAnalysis,
   CatalogData,
@@ -34,6 +35,7 @@ import { displayFixSummary, displayMajorVersionChanges } from '../ui/reporter.js
 interface FixOptions {
   dryRun?: boolean;
   verbose?: boolean;
+  silent?: boolean;
 }
 
 /**
@@ -42,8 +44,8 @@ interface FixOptions {
 export async function runFixCommand(
   targetPath: string,
   options: FixOptions = {}
-): Promise<void> {
-  showWelcome();
+): Promise<FixCommandResult> {
+  if (!options.silent) showWelcome();
   
   const summary: FixSummary = {
     startTime: new Date(),
@@ -84,8 +86,8 @@ export async function runFixCommand(
       success('No vulnerabilities found!');
       summary.endTime = new Date();
       displayFixSummary(summary);
-      showGoodbye();
-      return;
+      if (!options.silent) showGoodbye();
+      return { summary, hasChanges: false, remainingVulnerabilities: 0 };
     }
 
     // Group by severity for processing
@@ -268,10 +270,17 @@ export async function runFixCommand(
     // Remind to install dependencies if changes were made
     const hasChanges = summary.actionsApplied.upgrades.length > 0 ||
                        summary.actionsApplied.resolutions.length > 0;
-    
-    if (hasChanges && !options.dryRun) {
+
+    if (hasChanges && !options.dryRun && !options.silent) {
       warn(`Run '${workspace.packageManager} install' to install updated dependencies`);
     }
+
+    if (!options.silent) showGoodbye();
+
+    const remaining = dedupedResult.vulnerabilities.length -
+      summary.actionsApplied.upgrades.length -
+      summary.actionsApplied.resolutions.length;
+    return { summary, hasChanges, remainingVulnerabilities: Math.max(0, remaining) };
 
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -281,7 +290,12 @@ export async function runFixCommand(
     displayFixSummary(summary);
   }
 
-  showGoodbye();
+  if (!options.silent) showGoodbye();
+  return {
+    summary,
+    hasChanges: false,
+    remainingVulnerabilities: 0,
+  };
 }
 
 /**
@@ -305,6 +319,9 @@ function applyFixAction(
       rootPath,
     });
   } else if (action.type === 'resolution') {
-    applyResolution(packageJsonPath, action.packageName, action.targetVersion, packageManager);
+    applyResolution(packageJsonPath, action.packageName, action.targetVersion, packageManager, {
+      catalogs,
+      rootPath,
+    });
   }
 }

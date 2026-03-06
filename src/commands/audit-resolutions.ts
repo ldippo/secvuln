@@ -18,6 +18,7 @@ interface AuditResolutionsOptions {
   fix?: boolean;
   verbose?: boolean;
   json?: boolean;
+  silent?: boolean;
 }
 
 /**
@@ -27,7 +28,7 @@ export async function runAuditResolutionsCommand(
   targetPath: string,
   options: AuditResolutionsOptions = {}
 ): Promise<void> {
-  showWelcome();
+  if (!options.silent) showWelcome();
 
   try {
     const workspace = await withSpinner('Detecting workspace configuration', async () => {
@@ -42,7 +43,7 @@ export async function runAuditResolutionsCommand(
 
     if (resolutionCount === 0) {
       info('No resolutions/overrides found. Nothing to audit.');
-      showGoodbye();
+      if (!options.silent) showGoodbye();
       return;
     }
 
@@ -93,7 +94,10 @@ export async function runAuditResolutionsCommand(
                 updates[entry.packageName] = entry.suggestedVersion;
               }
             }
-            applyResolutions(packageJsonPath, updates, workspace.packageManager);
+            applyResolutions(packageJsonPath, updates, workspace.packageManager, {
+              catalogs: workspace.catalogs,
+              rootPath: workspace.rootPath,
+            });
             success(`Updated ${updatable.length} resolution(s)`);
           }
         }
@@ -109,5 +113,5 @@ export async function runAuditResolutionsCommand(
     console.error(`Audit-resolutions command failed: ${message}`);
   }
 
-  showGoodbye();
+  if (!options.silent) showGoodbye();
 }

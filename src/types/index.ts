@@ -161,6 +161,13 @@ export interface ResolutionAuditResult {
   counts: Record<ResolutionStatus, number>;
 }
 
+// Result from a fix command run (used by fix-all to determine next steps)
+export interface FixCommandResult {
+  summary: FixSummary;
+  hasChanges: boolean;
+  remainingVulnerabilities: number;
+}
+
 // Summary of all actions taken during a fix session
 export interface FixSummary {
   startTime: Date;

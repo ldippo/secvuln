@@ -141,6 +141,14 @@ async function findParentDependencies(
     const currentDeps = parentInfo.versions[parentVersion]?.dependencies;
     if (!currentDeps || !(childPackage in currentDeps)) continue;
 
+    // Skip if parent's current range for the child already resolves to >= override.
+    // In that case, this parent doesn't actually need the override.
+    const currentChildRange = currentDeps[childPackage];
+    const currentChildMin = semver.minVersion(currentChildRange);
+    if (currentChildMin && semver.gte(currentChildMin.version, resolvedOverride)) {
+      continue;
+    }
+
     // This parent depends on the overridden child — find a version
     // where it would naturally resolve >= override version
     const parentFix = findParentVersionThatResolvesChild(
@@ -161,6 +169,55 @@ async function findParentDependencies(
       versionChangeType,
       isSafe: versionChangeType === 'patch' || versionChangeType === 'minor',
     });
+  }
+
+  // Depth-2 search: check each direct dep's transitive dependencies
+  // for the child package. This catches the common pattern where a direct dep
+  // depends on an intermediate package that in turn depends on the child.
+  const checkedNames = new Set(parents.map((p) => p.name));
+  for (const [parentName, parentVersion] of directDeps) {
+    const parentInfo = await getCachedRegistryInfo(parentName, registryCache);
+    if (!parentInfo) continue;
+    const parentDeps = parentInfo.versions[parentVersion]?.dependencies;
+    if (!parentDeps) continue;
+
+    for (const [subDepName, subDepRange] of Object.entries(parentDeps)) {
+      if (subDepName === childPackage || checkedNames.has(subDepName)) continue;
+      const subDepInfo = await getCachedRegistryInfo(subDepName, registryCache);
+      if (!subDepInfo) continue;
+      const subDepMinVer = semver.minVersion(subDepRange);
+      if (!subDepMinVer) continue;
+      const subDepVersion = subDepMinVer.version;
+      const subDeps = subDepInfo.versions[subDepVersion]?.dependencies;
+      if (!subDeps || !(childPackage in subDeps)) continue;
+
+      // This intermediate dep depends on the child — check if its range needs the override
+      const childRange = subDeps[childPackage];
+      const childMinVer = semver.minVersion(childRange);
+      if (childMinVer && semver.gte(childMinVer.version, resolvedOverride)) {
+        continue; // Already resolves to >= override
+      }
+
+      const subFix = findParentVersionThatResolvesChild(
+        subDepInfo,
+        subDepVersion,
+        childPackage,
+        resolvedOverride
+      );
+
+      const versionChangeType: VersionChangeType = subFix.targetVersion
+        ? calculateVersionChangeType(subDepVersion, subFix.targetVersion)
+        : 'none';
+
+      parents.push({
+        name: subDepName,
+        currentVersion: subDepVersion,
+        targetVersion: subFix.targetVersion,
+        versionChangeType,
+        isSafe: versionChangeType === 'patch' || versionChangeType === 'minor',
+      });
+      checkedNames.add(subDepName);
+    }
   }
 
   return parents;
@@ -264,19 +321,36 @@ async function classifyResolution(
       registryCache
     );
 
-    // No parents found — direct dep override or orphaned, safe to remove
+    // No parents found that need the override
     if (parents.length === 0) {
+      // If the package is a direct dependency, it's safe to remove the override
+      // since latest > override and no transitive path needs protection
+      if (directDeps.has(packageName)) {
+        return {
+          packageName,
+          overrideVersion,
+          status: 'removable',
+          reason: `Latest version ${latest} is newer than override ${resolvedOverride}; package is a direct dependency with no transitive paths requiring this override`,
+          suggestedVersion: null,
+          parentDependencies: [],
+        };
+      }
+
+      // For transitive-only packages, we can't verify all dependency paths —
+      // there may be deeper transitive parents we didn't check
       return {
         packageName,
         overrideVersion,
-        status: 'removable',
-        reason: `Latest version ${latest} is newer than override ${resolvedOverride}; no parent dependencies require this override`,
+        status: 'unknown',
+        reason: `No parent dependency paths verified; override may still protect transitive dependencies not visible from direct dependencies`,
         suggestedVersion: null,
         parentDependencies: [],
       };
     }
 
-    // All parents have safe (patch/minor) upgrade paths that would resolve the child
+    // All parents have safe (patch/minor) upgrade paths that would resolve the child.
+    // However, the override is still needed UNTIL those parents are actually bumped —
+    // removing the override without bumping parents leaves vulnerable versions in the tree.
     const allParentsResolved = parents.every(
       (p) => p.targetVersion !== null && p.isSafe
     );
@@ -287,8 +361,8 @@ async function classifyResolution(
       return {
         packageName,
         overrideVersion,
-        status: 'removable',
-        reason: `Override can be removed after bumping parent dependencies: ${parentBumps}`,
+        status: 'needed',
+        reason: `Override is still needed; can be removed after bumping: ${parentBumps}`,
         suggestedVersion: null,
         parentDependencies: parents,
       };

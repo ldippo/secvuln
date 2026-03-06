@@ -33,22 +33,27 @@ export function parseGitHubUrl(url: string): { owner: string; repo: string } | n
 }
 
 /**
- * Fetch the repository URL from npm registry for a package
+ * Fetch the repository URL and optional directory from npm registry for a package
  */
-export async function getPackageRepositoryUrl(packageName: string): Promise<string | null> {
+export async function getPackageRepositoryUrl(packageName: string): Promise<{
+  url: string;
+  directory: string | null;
+} | null> {
   try {
     const response = await fetch(`https://registry.npmjs.org/${packageName}`);
     if (!response.ok) return null;
-    
-    const data = await response.json() as { repository?: { url?: string } | string };
-    
+
+    const data = await response.json() as {
+      repository?: { url?: string; directory?: string } | string;
+    };
+
     if (typeof data.repository === 'string') {
-      return data.repository;
+      return { url: data.repository, directory: null };
     }
     if (data.repository?.url) {
-      return data.repository.url;
+      return { url: data.repository.url, directory: data.repository.directory || null };
     }
-    
+
     return null;
   } catch {
     return null;
@@ -66,12 +71,12 @@ export async function fetchGitHubReleases(
   const entries: ChangelogEntry[] = [];
   
   // First, get the repository URL from npm
-  const repoUrl = await getPackageRepositoryUrl(packageName);
-  if (!repoUrl) {
+  const repoInfo = await getPackageRepositoryUrl(packageName);
+  if (!repoInfo) {
     return entries;
   }
 
-  const parsed = parseGitHubUrl(repoUrl);
+  const parsed = parseGitHubUrl(repoInfo.url);
   if (!parsed) {
     return entries;
   }
@@ -112,7 +117,7 @@ export async function fetchGitHubReleases(
     entries.sort((a, b) => compareVersions(b.version, a.version));
 
     if (entries.length === 0) {
-      return fetchChangelogFile(parsed.owner, parsed.repo, fromVersion, toVersion);
+      return fetchChangelogFile(parsed.owner, parsed.repo, fromVersion, toVersion, repoInfo.directory);
     }
 
     return entries;
@@ -253,28 +258,41 @@ export function parseChangelogMarkdown(content: string): ChangelogEntry[] {
 }
 
 /**
- * Fetch and parse a CHANGELOG.md file from GitHub as a fallback
+ * Fetch and parse a CHANGELOG.md file from GitHub as a fallback.
+ * Tries common changelog filenames (case-sensitive on GitHub API)
+ * and supports monorepo directory prefixes from npm registry.
  */
 async function fetchChangelogFile(
   owner: string,
   repo: string,
   fromVersion?: string,
-  toVersion?: string
+  toVersion?: string,
+  directory?: string | null
 ): Promise<ChangelogEntry[]> {
-  const filenames = ['CHANGELOG.md', 'CHANGES.md', 'HISTORY.md'];
+  const filenames = [
+    'CHANGELOG.md',
+    'changelog.md',
+    'Changelog.md',
+    'CHANGELOG',
+    'CHANGES.md',
+    'changes.md',
+    'HISTORY.md',
+    'History.md',
+    'history.md',
+  ];
 
   for (const filename of filenames) {
     try {
+      const filePath = directory ? `${directory}/${filename}` : filename;
       const { data } = await octokit.repos.getContent({
         owner,
         repo,
-        path: filename,
+        path: filePath,
       });
 
       const fileData = data as { content: string };
       const content = Buffer.from(fileData.content, 'base64').toString('utf-8');
       let entries = parseChangelogMarkdown(content);
-
       if (fromVersion && toVersion) {
         entries = entries.filter((entry) =>
           isVersionInRange(entry.version, fromVersion, toVersion)

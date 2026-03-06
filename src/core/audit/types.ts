@@ -137,10 +137,11 @@ export function extractVersionFromPath(path: string): string {
 }
 
 /**
- * Parse the dependency path into an array
+ * Parse the dependency path into an array.
+ * Filters out "." (root project marker used by pnpm/yarn).
  */
 export function parseDependencyPath(path: string): string[] {
-  return path.split('>').map((p) => p.trim());
+  return path.split('>').map((p) => p.trim()).filter((p) => p && p !== '.');
 }
 
 /**

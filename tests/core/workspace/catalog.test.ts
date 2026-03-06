@@ -5,7 +5,9 @@ import {
   resolveCatalogVersion,
   parseCatalogs,
   updateCatalogVersion,
+  findPackageInCatalogs,
 } from '../../../src/core/workspace/catalog.js';
+import type { CatalogData } from '../../../src/types/index.js';
 import { createTempDir, writeTempFile, cleanupTempDirs } from '../../helpers/temp-dir.js';
 
 describe('catalog', () => {
@@ -265,6 +267,40 @@ describe('catalog', () => {
       expect(result).not.toBeNull();
       expect(result!.default['express']).toBe('^4.18.0');
       expect(result!.default['react']).toBe('^17.0.0');
+    });
+  });
+
+  describe('findPackageInCatalogs', () => {
+    it('returns empty string when package is in default catalog', () => {
+      const catalogs: CatalogData = {
+        default: { react: '^18.2.0', lodash: '^4.17.21' },
+        named: {},
+      };
+      expect(findPackageInCatalogs('react', catalogs)).toBe('');
+    });
+
+    it('returns the named catalog name when package is in a named catalog', () => {
+      const catalogs: CatalogData = {
+        default: {},
+        named: { react17: { react: '^17.0.2' } },
+      };
+      expect(findPackageInCatalogs('react', catalogs)).toBe('react17');
+    });
+
+    it('returns null when package is not in any catalog', () => {
+      const catalogs: CatalogData = {
+        default: { react: '^18.2.0' },
+        named: {},
+      };
+      expect(findPackageInCatalogs('lodash', catalogs)).toBeNull();
+    });
+
+    it('prefers default catalog over named catalogs', () => {
+      const catalogs: CatalogData = {
+        default: { react: '^18.2.0' },
+        named: { legacy: { react: '^17.0.2' } },
+      };
+      expect(findPackageInCatalogs('react', catalogs)).toBe('');
     });
   });
 });

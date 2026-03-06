@@ -8,7 +8,7 @@ import type {
   CatalogData,
 } from '../../types/index.js';
 import { getTargetVersion, calculateVersionChangeType } from './direct.js';
-import { resolveCatalogVersion } from '../workspace/catalog.js';
+import { resolveCatalogVersion, findPackageInCatalogs, updateCatalogVersion } from '../workspace/catalog.js';
 
 /**
  * Fetch package info from npm registry
@@ -271,23 +271,43 @@ export function getExistingResolutions(
 }
 
 /**
- * Apply multiple resolutions at once
+ * Apply multiple resolutions at once.
+ * For pnpm with catalogs, packages managed by a catalog are updated in
+ * pnpm-workspace.yaml instead of being added as pnpm.overrides.
  */
 export function applyResolutions(
   packageJsonPath: string,
   resolutions: Record<string, string>,
-  packageManager: PackageManager
+  packageManager: PackageManager,
+  options?: { catalogs?: CatalogData; rootPath?: string }
 ): void {
+  // Separate catalog-managed packages from override-managed packages
+  let overrideResolutions = resolutions;
+  if (packageManager === 'pnpm' && options?.catalogs && options.rootPath) {
+    overrideResolutions = {};
+    for (const [name, version] of Object.entries(resolutions)) {
+      const catalogName = findPackageInCatalogs(name, options.catalogs);
+      if (catalogName !== null) {
+        updateCatalogVersion(options.rootPath, catalogName, name, `^${version}`);
+      } else {
+        overrideResolutions[name] = version;
+      }
+    }
+  }
+
+  // Apply remaining (non-catalog) resolutions to package.json
+  if (Object.keys(overrideResolutions).length === 0) return;
+
   const content = readFileSync(packageJsonPath, 'utf-8');
   const pkg = JSON.parse(content);
 
   if (packageManager === 'npm') {
-    pkg.overrides = { ...(pkg.overrides || {}), ...resolutions };
+    pkg.overrides = { ...(pkg.overrides || {}), ...overrideResolutions };
   } else if (packageManager === 'yarn') {
-    pkg.resolutions = { ...(pkg.resolutions || {}), ...resolutions };
+    pkg.resolutions = { ...(pkg.resolutions || {}), ...overrideResolutions };
   } else if (packageManager === 'pnpm') {
     pkg.pnpm = pkg.pnpm || {};
-    pkg.pnpm.overrides = { ...(pkg.pnpm.overrides || {}), ...resolutions };
+    pkg.pnpm.overrides = { ...(pkg.pnpm.overrides || {}), ...overrideResolutions };
   }
 
   writeFileSync(packageJsonPath, JSON.stringify(pkg, null, 2) + '\n');

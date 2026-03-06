@@ -111,7 +111,9 @@ export function displayVulnerability(vuln: Vulnerability): void {
 
   if (!vuln.isDirect) {
     const via = vuln.rootDependency
-      || (vuln.dependencyPath.length > 1 ? vuln.dependencyPath[0] : null);
+      || (vuln.dependencyPath.length > 1 && vuln.dependencyPath[0] !== vuln.packageName
+        ? vuln.dependencyPath[0]
+        : null);
     if (via) {
       lines.push(`  ${pc.dim('Transitive dependency via:')} ${via}`);
     } else {
