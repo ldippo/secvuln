@@ -2,24 +2,43 @@
 
 ## Project Overview
 
-CLI tool for security vulnerability remediation in npm/yarn/pnpm projects. TypeScript, ES modules, no test framework yet.
+CLI tool for security vulnerability remediation in npm/yarn/pnpm projects. TypeScript, ES modules, Vitest for testing.
 
 - **Entry point:** `src/bin/secvuln.ts`
-- **Commands:** `fix`, `test`, `extension` (in `src/commands/`)
+- **Commands:** `fix`, `fix-all`, `test`, `extension`, `audit-resolutions` (in `src/commands/`)
 - **Core modules:** `audit/`, `changelog/`, `resolver/`, `workspace/`, `vscode/` (in `src/core/`)
 - **Types:** `src/types/index.ts`
 - **UI:** `src/ui/` (prompts, reporter, spinners via `@clack/prompts` + `ora`)
 - **Build:** `pnpm run build` (tsc)
-- **No test framework configured yet** — tests need to be added
+- **Tests:** `pnpm test` (Vitest) — `tests/` mirrors `src/` structure
 
 ## Build & Verify
 
 ```
 pnpm run build        # TypeScript compilation — MUST pass after every change
 pnpm run typecheck    # Type-check without emitting
+pnpm test             # Run all tests — MUST pass after every change
+pnpm vitest run <path> # Run a specific test file
 ```
 
-Always run `pnpm run build` after making changes to verify compilation.
+Always run `pnpm run build` and `pnpm test` after making changes.
+
+## Testing
+
+- **Framework:** Vitest 4.x (`vitest.config.ts` at root)
+- **Test location:** `tests/` directory mirrors `src/core/` structure
+- **Test helpers:** `tests/helpers/`
+  - `temp-dir.ts` — `createTempDir()`, `writeTempFile()`, `cleanupTempDirs()` for filesystem tests
+  - `mock-fetch.ts` — `mockFetch(responses)` stubs `globalThis.fetch` with URL→response mapping
+- **Patterns:**
+  - Use `afterEach(() => { vi.restoreAllMocks(); cleanupTempDirs(); })` in every test file
+  - Mock registry calls via `mockFetch({ 'https://registry.npmjs.org/<pkg>': { versions: {...}, 'dist-tags': {...} } })`
+  - Create temp directories + files for any test that reads/writes package.json or YAML
+  - No network calls in tests — all HTTP is mocked via `mockFetch`
+- **Running tests:**
+  - `pnpm test` — run all tests
+  - `pnpm vitest run tests/core/resolver/direct.test.ts` — run a specific file
+  - `pnpm run test:watch` — watch mode during development
 
 ## Conventions
 
@@ -68,7 +87,7 @@ Task(subagent_type="general-purpose", isolation="worktree", prompt="<implementat
 ```
 
 - Use worktree isolation for changes that might conflict or need review before merging
-- Always include "run `pnpm run build` to verify compilation" in the prompt
+- Always include "run `pnpm run build && pnpm test` to verify compilation and tests" in the prompt
 - For independent features, launch multiple implementers in parallel
 
 ### Reviewer (general-purpose agent)
@@ -83,16 +102,18 @@ Review checklist:
 - No `semver.coerce()` on unresolved catalog refs (must resolve first)
 - Package manager differences handled (npm overrides vs yarn resolutions vs pnpm.overrides)
 - Monorepo paths: never assume single package.json at root
-- No hardcoded paths — use `join()` from `node:path`
+- No hardcoded paths — use `join()` / `dirname()` from `node:path`
 - Catalog refs preserved in package.json (never overwrite `"catalog:"` with a semver range)
 - YAML writes use `parseDocument` for format preservation
+- New functionality has corresponding tests in `tests/`
+- Tests use `mockFetch` for registry calls and `createTempDir` for filesystem ops
 
 ### Builder (haiku model for speed)
 
-Use for: quick compilation checks.
+Use for: quick compilation and test checks.
 
 ```
-Task(subagent_type="general-purpose", model="haiku", prompt="Run `pnpm run build` in /home/lyle/projects/secvuln and report any TypeScript errors. If there are errors, include the full error output.")
+Task(subagent_type="general-purpose", model="haiku", prompt="Run `pnpm run build && pnpm test` in /home/lyle/projects/secvuln and report any TypeScript errors or test failures. If there are errors, include the full error output.")
 ```
 
 Launch this in the background after changes:
@@ -106,14 +127,14 @@ Task(subagent_type="general-purpose", model="haiku", run_in_background=true, pro
 
 1. **Architect** — plan the feature (foreground, need results before proceeding)
 2. **Implementer(s)** — implement in parallel if changes are independent (worktree for risky changes)
-3. **Builder** — verify compilation (background)
+3. **Builder** — verify compilation + tests (background)
 4. **Reviewer** — review the diff (can run while builder runs)
 
 ### Bug Fix
 
 1. **Explorer** — find the root cause and all affected code paths
 2. **Implement** the fix directly (small fixes don't need worktree isolation)
-3. **Builder** — verify compilation
+3. **Builder** — verify compilation + tests
 4. **Explorer** — verify no other call sites are affected
 
 ### Refactor
